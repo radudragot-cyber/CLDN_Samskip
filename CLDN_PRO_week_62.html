@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CLdN — Raport Diferente Taxe Drum</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --navy:   #0f1f3d;
+    --blue:   #1a3a6b;
+    --accent: #2d7dd2;
+    --toll:   #e8a020;
+    --green:  #2ecc71;
+    --red:    #e74c3c;
+    --bg:     #f0f4f8;
+    --panel:  #ffffff;
+    --text:   #1a2840;
+    --muted:  #6b7a99;
+    --border: #d0dae8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* HEADER */
+  #header {
+    background: var(--navy);
+    padding: 0 20px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .logo { font-family:'DM Mono',monospace; font-size:13px; font-weight:500; color:var(--accent); letter-spacing:0.08em; text-transform:uppercase; white-space:nowrap; }
+  .sep  { width:1px; height:24px; background:rgba(255,255,255,0.15); flex-shrink:0; }
+  .header-meta { font-size:11px; color:rgba(255,255,255,0.45); font-family:'DM Mono',monospace; white-space:nowrap; }
+  .route-label { font-size:13px; font-weight:500; color:white; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .driver-badge { background:rgba(45,125,210,0.25); border:1px solid rgba(45,125,210,0.4); color:#7ab3e8; font-size:11px; font-weight:500; padding:3px 10px; border-radius:20px; white-space:nowrap; }
+
+  /* NAV */
+  #nav {
+    background: var(--blue);
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding: 0 16px;
+  }
+  .nav-btn {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: white;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    padding: 5px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .nav-btn:hover { background: rgba(255,255,255,0.2); }
+  .nav-btn:disabled { opacity: 0.3; cursor: default; }
+  #nav-counter { font-family:'DM Mono',monospace; font-size:12px; color:rgba(255,255,255,0.7); min-width:80px; text-align:center; }
+  #nav-planid  { font-family:'DM Mono',monospace; font-size:11px; color:rgba(255,255,255,0.45); }
+
+  /* MAIN */
+  #main { display:flex; flex:1; overflow:hidden; }
+
+  /* SIDEBAR */
+  #sidebar { width:290px; flex-shrink:0; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; }
+  .sidebar-section { padding:14px 18px; border-bottom:1px solid var(--border); }
+  .sidebar-section:last-child { border-bottom:none; }
+  .section-label { font-size:10px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
+
+  /* STATS */
+  .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .stat-card { background:var(--bg); border-radius:8px; padding:10px 12px; border:1px solid var(--border); }
+  .stat-card.full { grid-column:1/-1; }
+  .stat-card.highlight { background:#fff8e6; border-color:#f0c060; }
+  .stat-value { font-family:'DM Mono',monospace; font-size:18px; font-weight:500; color:var(--text); line-height:1; }
+  .stat-card.highlight .stat-value { color:#b07000; }
+  .stat-label { font-size:10px; color:var(--muted); margin-top:3px; }
+
+  /* STOPS */
+  .stop-list { display:flex; flex-direction:column; }
+  .stop-item { display:flex; align-items:flex-start; gap:10px; position:relative; padding:7px 0; }
+  .stop-item:not(:last-child)::after { content:''; position:absolute; left:10px; top:26px; bottom:-7px; width:2px; background:var(--border); }
+  .stop-dot { width:22px; height:22px; border-radius:50%; border:2px solid var(--accent); background:white; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:600; color:var(--accent); flex-shrink:0; z-index:1; }
+  .stop-item:first-child .stop-dot { background:var(--accent); color:white; }
+  .stop-item:last-child  .stop-dot { background:var(--navy); border-color:var(--navy); color:white; }
+  .stop-name   { font-size:12px; font-weight:500; padding-top:2px; }
+  .stop-coords { font-family:'DM Mono',monospace; font-size:10px; color:var(--muted); margin-top:1px; }
+
+  /* STATUS */
+  .status-badge { display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:20px; font-size:11px; font-weight:600; }
+  .status-ok   { background:#eafaf1; color:#1a8a45; border:1px solid #82e0aa; }
+  .status-warn { background:#fff8e6; color:#b07000; border:1px solid #f0c060; }
+  .status-err  { background:#fdf0f0; color:#c0392b; border:1px solid #f1948a; }
+  .status-dot  { width:6px; height:6px; border-radius:50%; background:currentColor; }
+
+  /* MAP */
+  #map-container { flex:1; position:relative; }
+  #map { width:100%; height:100%; }
+
+  /* LOADING */
+  #map-loading { position:absolute; inset:0; background:rgba(15,31,61,0.7); display:flex; align-items:center; justify-content:center; z-index:1000; color:white; font-size:13px; gap:10px; }
+  .spinner { width:28px; height:28px; border:3px solid rgba(255,255,255,0.2); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; flex-shrink:0; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* FOOTER */
+  #footer { height:30px; background:var(--navy); display:flex; align-items:center; padding:0 18px; gap:16px; flex-shrink:0; }
+  #footer span { font-size:10px; color:rgba(255,255,255,0.4); font-family:'DM Mono',monospace; }
+  #footer .f-accent { color:rgba(255,255,255,0.7); }
+</style>
+<script>
+window._ROUTES = [{"planId":"26T287019","driver":"Camion: Pro Expert 09 | Container: TLLU165841/4","cities":["Bochum","Oud-Turnhout","Rotterdam"],"lats":[51.497338,51.323112,51.876765],"lons":[7.265577,4.968195,4.430985],"totalKm":298,"kmAchitat":276.8,"taxeAchitate":52.98,"totalToll":59.45},{"planId":"26T273327","driver":"Camion: Pro Expert 11 | Container: TLLU158002/3","cities":["Zutphen","Almelo","Rotterdam"],"lats":[52.158029,52.378227,51.876765],"lons":[6.199378,6.617136,4.430985],"totalKm":254,"kmAchitat":246.6,"taxeAchitate":32.29,"totalToll":34.84},{"planId":"26T284006","driver":"Camion: Pro Expert 08 | Container: CLDU963074/9","cities":["Brecht","Dourges","Rotterdam"],"lats":[51.342875,50.432497,51.876765],"lons":[4.682044,3.00249,4.430985],"totalKm":439,"kmAchitat":433.4,"taxeAchitate":99.9,"totalToll":102.98},{"planId":"26T262539","driver":"Camion: Pro Expert 01 | Container: PVDU112763/8","cities":["Hildesheim","Bremervorde","Rotterdam"],"lats":[52.16765,53.489304,51.876765],"lons":[9.938021,9.119045,4.430985],"totalKm":681,"kmAchitat":630.9,"taxeAchitate":160.9,"totalToll":190.82},{"planId":"26T289851","driver":"Camion: PROEXPER01 | Container: CLDU962597/4","cities":["Zeebrugge","Monchengladbach","Monchengladbach","Botlek Rotterdam"],"lats":[51.336025,51.110957,51.110957,51.876605],"lons":[3.219904,6.436954,6.436954,4.243533],"totalKm":486,"kmAchitat":486.1,"taxeAchitate":113,"totalToll":114.61},{"planId":"26T283526","driver":"Camion: Pro Expert 02 | Container: SANU751532/6","cities":["Sarralbe","Fulda","Duisburg"],"lats":[49.012607,50.554547,51.449712],"lons":[7.032123,9.593792,6.745954],"totalKm":656,"kmAchitat":642.3,"taxeAchitate":208.62,"totalToll":212.3},{"planId":"26T264664","driver":"Camion: PROEXPER02 | Container: CLDU970318/8","cities":["Zeebrugge","Trappes","Herblay-sur-Seine","Zeebrugge"],"lats":[51.336025,48.760564,49.027336,51.336025],"lons":[3.219904,1.985873,2.123466,3.219904],"totalKm":713,"kmAchitat":708.2,"taxeAchitate":132.36,"totalToll":133.24},{"planId":"26T288262","driver":"Camion: Pro Expert 04 | Container: TLLU170225/0","cities":["Duisburg","Maasbree","Rotterdam"],"lats":[51.449712,51.394,51.876765],"lons":[6.745954,6.073934,4.430985],"totalKm":238,"kmAchitat":206.6,"taxeAchitate":36.24,"totalToll":43.88},{"planId":"26T269137","driver":"Camion: Pro Expert 05 | Container: TLLU172881/0","cities":["Rotterdam","Lessines","Kaullille","Botlek Rotterdam"],"lats":[51.876765,50.695241,51.20681,51.876605],"lons":[4.430985,3.824978,5.520881,4.243533],"totalKm":540,"kmAchitat":528.2,"taxeAchitate":114.91,"totalToll":120.81},{"planId":"26T287361","driver":"Camion: Pro Expert 10 | Container: TLLU165334/6","cities":["Thierhaupten","Erfurt","Rotterdam"],"lats":[48.572752,50.990414,51.876765],"lons":[10.905032,11.043063,4.430985],"totalKm":989,"kmAchitat":936.7,"taxeAchitate":287.35,"totalToll":308.49},{"planId":"26T256920","driver":"Camion: Pro Expert 01 | Container: CNEU468215/6","cities":["Rotterdam","Barneveld","Hilversum","Rotterdam"],"lats":[51.876765,52.164298,52.22337,51.876765],"lons":[4.430985,5.591753,5.144353,4.430985],"totalKm":239,"kmAchitat":241.2,"taxeAchitate":35.08,"totalToll":35.45},{"planId":"26T294878","driver":"Camion: PROEXPER01 | Container: CLDU970596/1","cities":["Botlek Rotterdam","OOSTERHOUT GLD","De Klomp","Botlek Rotterdam"],"lats":[51.876605,51.888992,52.041753,51.876605],"lons":[4.243533,5.821088,5.581703,4.243533],"totalKm":268,"kmAchitat":264.1,"taxeAchitate":38.81,"totalToll":49.33},{"planId":"26T287412","driver":"Camion: Pro Expert 11 | Container: RCDU972866/","cities":["Rotterdam","Breda","Botlek Rotterdam"],"lats":[51.876765,51.501865,51.876605],"lons":[4.430985,4.743711,4.243533],"totalKm":129,"kmAchitat":148.9,"taxeAchitate":19.08,"totalToll":19.35},{"planId":"26T266404","driver":"Camion: Pro Expert 08 | Container: TLLU165446/6","cities":["Rotterdam","Wijchen","Barneveld","Rotterdam"],"lats":[51.876765,51.823529,52.164298,51.876765],"lons":[4.430985,5.755192,5.591753,4.430985],"totalKm":290,"kmAchitat":283.4,"taxeAchitate":42.13,"totalToll":44.17},{"planId":"26T293870","driver":"Camion: Pro Expert 02 | Container: TLLU165891/8","cities":["Duisburg","Vierlingsbeek","Botlek Rotterdam"],"lats":[51.449712,51.600739,51.876605],"lons":[6.745954,5.998894,4.243533],"totalKm":255,"kmAchitat":240,"taxeAchitate":43.41,"totalToll":46.14},{"planId":"26T256917","driver":"Camion: Pro Expert 11 | Container: TLLU174268/0","cities":["Rotterdam","Barneveld","Barneveld","Rotterdam"],"lats":[51.876765,52.164298,52.164298,51.876765],"lons":[4.430985,5.591753,5.591753,4.430985],"totalKm":219,"kmAchitat":221,"taxeAchitate":33.38,"totalToll":33.59},{"planId":"26T280684","driver":"Camion: Pro Expert 05 | Container: CNEU4609129","cities":["Haps","Vierlingsbeek","Rotterdam"],"lats":[51.69604,51.600739,51.876765],"lons":[5.875615,5.998894,4.430985],"totalKm":166,"kmAchitat":166.6,"taxeAchitate":22.38,"totalToll":24.76},{"planId":"26T298746","driver":"Camion: Pro Expert 02 | Container: TLLU166166/0","cities":["Amsterdam","Zwolle","Rotterdam"],"lats":[52.399481,52.540277,51.876765],"lons":[4.753676,6.176207,4.430985],"totalKm":307,"kmAchitat":295.6,"taxeAchitate":38.95,"totalToll":46.42},{"planId":"26T295373","driver":"Camion: PROEXPER01 | Container: CLDU962898/9","cities":["Botlek Rotterdam","Vondelingenplaat","Duisburg","Verden (Aller)","Botlek Rotterdam"],"lats":[51.876605,51.892844,51.449712,52.910839,51.876605],"lons":[4.243533,4.374582,6.745954,9.259441,4.243533],"totalKm":979,"kmAchitat":966.5,"taxeAchitate":245.87,"totalToll":259.72},{"planId":"26T263905","driver":"Camion: PROEXPER02 | Container: TLLU166926/0","cities":["Zeebrugge","Herstal","Grace-Hollogne","Zeebrugge"],"lats":[51.336025,50.681536,50.626009,51.336025],"lons":[3.219904,5.575598,5.417181,3.219904],"totalKm":441,"kmAchitat":440.7,"taxeAchitate":114.42,"totalToll":116.34},{"planId":"26T287381","driver":"Camion: Pro Expert 10 | Container: PVDU108784/9","cities":["Venlo","Breda","Botlek Rotterdam"],"lats":[51.39672,51.501865,51.876605],"lons":[6.093948,4.743711,4.243533],"totalKm":183,"kmAchitat":194.4,"taxeAchitate":27.86,"totalToll":27.82},{"planId":"26T302113","driver":"Camion: Pro Expert 01 | Container: CNEU457032/5","cities":["Venlo","Breda","Rotterdam"],"lats":[51.39672,51.501865,51.876765],"lons":[6.093948,4.743711,4.430985],"totalKm":171,"kmAchitat":179.5,"taxeAchitate":25.63,"totalToll":25.98},{"planId":"26T290813","driver":"Camion: Pro Expert 05 | Container: SANU701029/4","cities":["Rotterdam","Botlek Rotterdam","Rotterdam","Bad Laer","Rotterdam"],"lats":[51.876765,51.876605,51.876765,52.116359,51.876765],"lons":[4.430985,4.243533,4.430985,8.08917,4.430985],"totalKm":660,"kmAchitat":663.7,"taxeAchitate":133.57,"totalToll":134.08},{"planId":"26T253262","driver":"Camion: Pro Expert 10 | Container: LCOU110219/0","cities":["Rotterdam","Kelsterbach","Huckelhoven","Duisburg"],"lats":[51.876765,50.036776,51.034867,51.449712],"lons":[4.430985,8.484877,6.25639,6.745954],"totalKm":752,"kmAchitat":742.2,"taxeAchitate":214.55,"totalToll":217.32},{"planId":"26T287293","driver":"Camion: Pro Expert 11 | Container: TLLU165780/3","cities":["Rotterdam","Buggenhout","Rotterdam"],"lats":[51.876765,51.02254,51.876765],"lons":[4.430985,4.168703,4.430985],"totalKm":274,"kmAchitat":266,"taxeAchitate":48.05,"totalToll":83.78},{"planId":"26T287409","driver":"Camion: Pro Expert 06 | Container: TLLU157645/0","cities":["Venlo","Breda","Botlek Rotterdam"],"lats":[51.39672,51.501865,51.876605],"lons":[6.093948,4.743711,4.243533],"totalKm":183,"kmAchitat":194.4,"taxeAchitate":27.86,"totalToll":27.82},{"planId":"26T294249","driver":"Camion: Pro Expert 01 | Container: TLLU172406/0","cities":["Botlek Rotterdam","Gent","Rotterdam"],"lats":[51.876605,51.01923,51.876765],"lons":[4.243533,3.73522,4.430985],"totalKm":320,"kmAchitat":285,"taxeAchitate":85.3,"totalToll":103.04},{"planId":"26T304614","driver":"Camion: Pro Expert 04 | Container: SANU754073/5","cities":["Venlo","Huckelhoven","Duisburg","Waalwijk","Botlek Rotterdam","Botlek Rotterdam"],"lats":[51.39672,51.034867,51.449712,51.696376,51.876605,51.876605],"lons":[6.093948,6.25639,6.745954,5.032734,4.243533,4.243533],"totalKm":392,"kmAchitat":369.1,"taxeAchitate":74.65,"totalToll":90.19},{"planId":"26T303992","driver":"Camion: Pro Expert 09 | Container: TCLU484043/0","cities":["Bochum","ELST","Rotterdam"],"lats":[51.497338,51.911119,51.876765],"lons":[7.265577,5.855079,4.430985],"totalKm":245,"kmAchitat":245.1,"taxeAchitate":56.46,"totalToll":55.11},{"planId":"26T287160","driver":"Camion: Pro Expert 02 | Container: CLDU962694/4","cities":["Zeebrugge","Santeny","Le Meux","Le Meux","Zeebrugge"],"lats":[51.336025,48.715288,49.352213,49.352213,51.336025],"lons":[3.219904,2.56804,2.753688,2.753688,3.219904],"totalKm":687,"kmAchitat":657.7,"taxeAchitate":122.87,"totalToll":128.41},{"planId":"26T281423","driver":"Camion: Pro Expert 02 | Container: SEGU793077/5","cities":["Duisburg","Enschede","Rotterdam"],"lats":[51.449712,52.205906,51.876765],"lons":[6.745954,6.817791,4.430985],"totalKm":326,"kmAchitat":329.2,"taxeAchitate":64.37,"totalToll":67.86},{"planId":"26T302849","driver":"Camion: Pro Expert 11 | Container: TLLU165581/6","cities":["Willebroek","Kaullille","Rotterdam"],"lats":[51.044495,51.20681,51.876765],"lons":[4.365903,5.520881,4.430985],"totalKm":286,"kmAchitat":263.6,"taxeAchitate":46.79,"totalToll":55.2},{"planId":"26T311966","driver":"Camion: Pro Expert 09 | Container: 0","cities":["Rotterdam","Antwerpen"],"lats":[51.876765,51.242068],"lons":[4.430985,4.447841],"totalKm":94,"kmAchitat":91.7,"taxeAchitate":15.9,"totalToll":19.1},{"planId":"26T302852","driver":"Camion: Pro Expert 05 | Container: TLLU166452/5","cities":["Willebroek","Kaullille","Rotterdam"],"lats":[51.044495,51.20681,51.876765],"lons":[4.365903,5.520881,4.430985],"totalKm":285,"kmAchitat":263.6,"taxeAchitate":46.79,"totalToll":53.71}];
+window._META = {"company":"PRO EXPERT TRANSPORT SRL","week":"Q26004857","totalRoutes":34,"totalDiff":"224.83"};
+</script>
+</head>
+<body>
+
+<div id="header">
+  <div class="logo">CLdN · Raport Diferente</div>
+  <div class="sep"></div>
+  <div class="header-meta" id="h-selfbill">—</div>
+  <div class="sep"></div>
+  <div class="route-label" id="h-route">—</div>
+  <div class="driver-badge" id="h-driver" style="display:none"></div>
+</div>
+
+<div id="nav">
+  <button class="nav-btn" id="btn-prev" onclick="navigate(-1)">&#8592; Anterior</button>
+  <span id="nav-counter">1 / 1</span>
+  <span id="nav-planid">—</span>
+  <button class="nav-btn" id="btn-next" onclick="navigate(+1)">Urmator &#8594;</button>
+</div>
+
+<div id="main">
+  <div id="sidebar">
+    <div class="sidebar-section">
+      <div class="section-label">Statistici Ruta</div>
+      <div class="stat-grid">
+        <div class="stat-card highlight full">
+          <div class="stat-value" id="s-toll">—</div>
+          <div class="stat-label">Taxe drum PTV (EUR)</div>
+        </div>
+        <div class="stat-card full" id="s-dfds-card" style="display:none">
+          <div class="stat-value" id="s-dfds" style="color:#2ecc71">—</div>
+          <div class="stat-label">Taxe de drum achitate (EUR)</div>
+        </div>
+        <div class="stat-card full" id="s-diff-card" style="display:none">
+          <div class="stat-value" id="s-diff">—</div>
+          <div class="stat-label">Diferenta ramasa de achitat (EUR)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="s-dist">—</div>
+          <div class="stat-label">KM calculat PTV</div>
+        </div>
+        <div class="stat-card" id="s-dfds-km-card" style="display:none">
+          <div class="stat-value" id="s-dfds-km">—</div>
+          <div class="stat-label">KM achitat (PDF)</div>
+        </div>
+        <div class="stat-card full" id="s-diff-km-card" style="display:none">
+          <div class="stat-value" id="s-diff-km">—</div>
+          <div class="stat-label">Diferenta KM (achitat vs PTV)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-section" id="status-section" style="display:none">
+      <div class="section-label">Status Verificare</div>
+      <div id="s-status"></div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-label">Opriri Ruta</div>
+      <div class="stop-list" id="stop-list"></div>
+    </div>
+  </div>
+
+  <div id="map-container">
+    <div id="map-loading"><div class="spinner"></div>Se incarca harta...</div>
+    <div id="map"></div>
+  </div>
+</div>
+
+<div id="footer">
+  <span>CLdN · Raport Diferente Taxe Drum</span>
+  <span>·</span>
+  <span class="f-accent" id="f-total"></span>
+  <span>·</span>
+  <span id="f-ts">—</span>
+</div>
+
+<script>
+// ── DATE INJECTATE DE VBA ──────────────────────────────────
+const ROUTES = window._ROUTES || [];
+const META   = window._META   || {};
+
+// ── STATE ──────────────────────────────────────────────────
+let currentIdx = 0;
+let map        = null;
+let routeLayerGroup = null;
+let markerLayerGroup = null;
+
+// ── INIT ───────────────────────────────────────────────────
+document.getElementById('h-selfbill').textContent =
+  (META.company || '—') + (META.week ? (' · Saptamana ' + META.week) : '');
+document.getElementById('f-total').textContent =
+  'Total diferente: ' + (META.totalDiff || '0') + ' EUR · ' + (META.totalRoutes || 0) + ' rute';
+document.getElementById('f-ts').textContent = new Date().toLocaleString('ro-RO');
+
+// Initializeaza harta o singura data
+map = L.map('map', {zoomControl: true}).setView([51.5, 8.0], 6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors', maxZoom: 19
+}).addTo(map);
+routeLayerGroup  = L.layerGroup().addTo(map);
+markerLayerGroup = L.layerGroup().addTo(map);
+
+if (ROUTES.length > 0) {
+  showRoute(0);
+} else {
+  document.getElementById('map-loading').innerHTML = '<div style="text-align:center"><div style="font-size:32px">⚠️</div><div style="margin-top:8px">Nu exista rute de afisat.</div></div>';
+}
+
+// ── NAVIGARE ───────────────────────────────────────────────
+function navigate(dir) {
+  const newIdx = currentIdx + dir;
+  if (newIdx < 0 || newIdx >= ROUTES.length) return;
+  showRoute(newIdx);
+}
+
+// ── AFISEAZA RUTA ──────────────────────────────────────────
+function showRoute(idx) {
+  currentIdx = idx;
+  const r = ROUTES[idx];
+
+  // Nav buttons
+  document.getElementById('btn-prev').disabled = idx === 0;
+  document.getElementById('btn-next').disabled = idx === ROUTES.length - 1;
+  document.getElementById('nav-counter').textContent = (idx + 1) + ' / ' + ROUTES.length;
+  document.getElementById('nav-planid').textContent  = r.planId || '';
+
+  // Header
+  document.getElementById('h-route').textContent = r.cities.join(' \u2192 ');
+  const db = document.getElementById('h-driver');
+  if (r.driver) { db.textContent = r.driver; db.style.display = 'inline-flex'; }
+  else db.style.display = 'none';
+
+  // Statistici
+  document.getElementById('s-toll').textContent = r.totalToll > 0 ? r.totalToll.toFixed(2) + ' EUR' : '0.00 EUR';
+  document.getElementById('s-dist').textContent = r.totalKm > 0 ? Math.trunc(r.totalKm) + ' km' : '—';
+
+  if (r.taxeAchitate > 0 || r.taxeAchitate === 0) {
+    document.getElementById('s-dfds-card').style.display = '';
+    document.getElementById('s-dfds').textContent = r.taxeAchitate.toFixed(2) + ' EUR';
+  } else {
+    document.getElementById('s-dfds-card').style.display = 'none';
+  }
+
+  if (r.taxeAchitate !== null && r.taxeAchitate !== undefined && r.totalToll > 0) {
+    const diff = r.taxeAchitate - r.totalToll; // negativ = mai trebuie achitat
+    document.getElementById('s-diff-card').style.display = '';
+    const de = document.getElementById('s-diff');
+    if (diff < -0.01) {
+      de.textContent = Math.abs(diff).toFixed(2) + ' EUR';
+      de.style.color = '#c0392b';
+    } else {
+      de.textContent = '0.00 EUR (achitat integral)';
+      de.style.color = '#1a8a45';
+    }
+  } else {
+    document.getElementById('s-diff-card').style.display = 'none';
+  }
+
+  if (r.kmAchitat > 0 || r.kmAchitat === 0) {
+    document.getElementById('s-dfds-km-card').style.display = '';
+    document.getElementById('s-dfds-km').textContent = Math.trunc(r.kmAchitat) + ' km';
+  } else {
+    document.getElementById('s-dfds-km-card').style.display = 'none';
+  }
+
+  if (r.kmAchitat !== null && r.kmAchitat !== undefined && r.totalKm > 0) {
+    const dkm = r.kmAchitat - r.totalKm; // negativ = PTV calculeaza mai mult decat s-a achitat
+    document.getElementById('s-diff-km-card').style.display = '';
+    const dke = document.getElementById('s-diff-km');
+    dke.textContent = (dkm >= 0 ? '+' : '') + Math.trunc(dkm) + ' km';
+    dke.style.color = Math.abs(dkm) <= r.totalKm * 0.1 ? '#1a8a45' : (dkm > 0 ? '#b07000' : '#c0392b');
+  } else {
+    document.getElementById('s-diff-km-card').style.display = 'none';
+  }
+
+  // Status
+  const statusSection = document.getElementById('status-section');
+  if (r.taxeAchitate !== null && r.taxeAchitate !== undefined && r.totalToll > 0) {
+    const diff = r.taxeAchitate - r.totalToll;
+    const pct  = r.totalToll > 0 ? Math.abs(diff) / r.totalToll : 0;
+    let sh = '';
+    if (pct <= 0.05)   sh = '<div class="status-badge status-ok"><div class="status-dot"></div>OK \u2014 diferenta sub 5%</div>';
+    else if (diff >= 0) sh = '<div class="status-badge status-ok"><div class="status-dot"></div>Achitat integral</div>';
+    else                sh = '<div class="status-badge status-warn"><div class="status-dot"></div>De recuperat diferenta</div>';
+    document.getElementById('s-status').innerHTML = sh;
+    statusSection.style.display = '';
+  } else {
+    statusSection.style.display = 'none';
+  }
+
+  // Lista opriri
+  const stopList = document.getElementById('stop-list');
+  stopList.innerHTML = '';
+  const mc = ['#2d7dd2','#e8a020','#2ecc71','#9b59b6','#e74c3c'];
+  for (let i = 0; i < r.cities.length; i++) {
+    const el = document.createElement('div');
+    el.className = 'stop-item';
+    const lat = r.lats[i] || 0, lon = r.lons[i] || 0;
+    el.innerHTML = '<div class="stop-dot">' + (i+1) + '</div><div>' +
+      '<div class="stop-name">' + r.cities[i] + '</div>' +
+      '<div class="stop-coords">' + lat.toFixed(4) + ', ' + lon.toFixed(4) + '</div>' +
+      '</div>';
+    stopList.appendChild(el);
+  }
+
+  // Harta
+  updateMap(r);
+}
+
+// ── HARTA ──────────────────────────────────────────────────
+function updateMap(r) {
+  routeLayerGroup.clearLayers();
+  markerLayerGroup.clearLayers();
+  document.getElementById('map-loading').style.display = 'flex';
+
+  const waypoints = r.lats.map((lat, i) => [lat, r.lons[i]]);
+  if (waypoints.length < 2) {
+    document.getElementById('map-loading').style.display = 'none';
+    return;
+  }
+
+  // Linii drepte placeholder
+  const shadow = L.polyline(waypoints, { color:'#000', weight:9, opacity:0.12, lineJoin:'round', lineCap:'round' });
+  const line   = L.polyline(waypoints, { color:'#e8500a', weight:5, opacity:1, lineJoin:'round', lineCap:'round' });
+  routeLayerGroup.addLayer(shadow);
+  routeLayerGroup.addLayer(line);
+  map.fitBounds(waypoints, {padding:[50,50]});
+
+  // Markeri
+  addMarkers(r);
+  document.getElementById('map-loading').style.display = 'none';
+
+  // OSRM traseu real
+  const coordsStr = r.lats.map((lat, i) => r.lons[i] + ',' + lat).join(';');
+  const osrmUrl = 'https://router.project-osrm.org/route/v1/driving/' + coordsStr +
+                  '?overview=full&geometries=geojson&steps=false';
+
+  fetch(osrmUrl)
+    .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+    .then(data => {
+      if (!data.routes || !data.routes[0]) return;
+      const roadCoords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+      routeLayerGroup.clearLayers();
+      routeLayerGroup.addLayer(L.polyline(roadCoords, { color:'#000', weight:9, opacity:0.12, lineJoin:'round', lineCap:'round' }));
+      routeLayerGroup.addLayer(L.polyline(roadCoords, { color:'#e8500a', weight:5, opacity:1, lineJoin:'round', lineCap:'round' }));
+      markerLayerGroup.clearLayers();
+      addMarkers(r);
+      map.fitBounds(roadCoords, {padding:[50,50]});
+    })
+    .catch(() => { /* raman liniile drepte */ });
+}
+
+function addMarkers(r) {
+  const mc = ['#2d7dd2','#e8a020','#2ecc71','#9b59b6','#e74c3c'];
+  for (let i = 0; i < r.cities.length; i++) {
+    const col = i === 0 ? '#2d7dd2' : i === r.cities.length-1 ? '#0f1f3d' : mc[i % mc.length];
+    const icon = L.divIcon({
+      className: '',
+      html: '<div style="background:' + col + ';color:white;border-radius:50%;width:28px;height:28px;' +
+            'display:flex;align-items:center;justify-content:center;font-family:monospace;' +
+            'font-size:11px;font-weight:600;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.5)">' + (i+1) + '</div>',
+      iconAnchor: [14, 14]
+    });
+    L.marker([r.lats[i], r.lons[i]], {icon, zIndexOffset:1000})
+      .addTo(markerLayerGroup)
+      .bindPopup('<b>' + r.cities[i] + '</b><br><small>' + r.lats[i].toFixed(5) + ', ' + r.lons[i].toFixed(5) + '</small>');
+  }
+}
+
+// Navigare cu tastatura
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft')  navigate(-1);
+  if (e.key === 'ArrowRight') navigate(+1);
+});
+</script>
+</body>
+</html>
+
+
